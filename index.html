@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Musical Classroom (Standalone with Haptics)</title>
+    <!-- 
+        This application uses the three.js library from a reliable CDN (Content Delivery Network).
+        This is a standard practice for web development and allows this file to work directly 
+        on platforms like GitHub Pages without needing any other files.
+    -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+        }
+        
+        #container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            touch-action: none; /* Prevents default touch actions */
+        }
+
+        #info-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #b366ff;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-family: 'Arial', sans-serif;
+            font-size: 14px;
+            transition: opacity 0.5s ease-in-out;
+            user-select: none;
+            z-index: 100;
+        }
+        
+        #controls-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 10px;
+            transition: transform 0.3s ease-in-out;
+            transform: translateX(120%);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            user-select: none;
+        }
+
+        #controls-panel.active {
+            transform: translateX(0);
+        }
+
+        .control-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            width: 45px;
+            height: 45px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background-color 0.3s, transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.4);
+            transform: scale(1.1);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+        }
+
+        .control-btn.active {
+            background: #8a2be2;
+            box-shadow: 0 0 15px #8a2be2;
+        }
+        
+        .control-btn.recording {
+            background: #f44336;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 5px #f44336; }
+            50% { box-shadow: 0 0 20px #f44336; }
+            100% { box-shadow: 0 0 5px #f44336; }
+        }
+
+        #toggle-controls-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 101;
+            transition: transform 0.3s, background-color 0.3s;
+        }
+
+        #toggle-controls-btn:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+        
+        #help-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 200;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.5s ease-in-out, visibility 0.5s;
+        }
+
+        #help-screen h2 {
+            font-size: 2em;
+            margin-bottom: 20px;
+        }
+
+        #help-screen ul {
+            list-style: none;
+            padding: 0;
+            text-align: left;
+            max-width: 600px;
+            font-size: 1.2em;
+        }
+
+        #help-screen li {
+            margin-bottom: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .note-label {
+            position: absolute;
+            color: #ff00ff;
+            font-family: 'Arial', sans-serif;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <!-- 3D Scene Canvas is added by JS -->
+    </div>
+    <div id="info-overlay">Tap on objects to play music and see effects.</div>
+    <button id="toggle-controls-btn">|||</button>
+    <div id="controls-panel">
+        <select id="scale-select" class="control-btn" style="width: auto; padding: 0 5px;">
+            <option value="major">C Maj</option>
+            <option value="minor">C Min</option>
+            <option value="pentatonic">Penta</option>
+            <option value="chromatic">Chroma</option>
+        </select>
+        <select id="mode-select" class="control-btn" style="width: auto; padding: 0 5px;">
+            <option value="interactive">Interactive</option>
+            <option value="sequencer">Sequencer</option>
+            <option value="callResponse">Choir Harmony</option>
+        </select>
+        <button id="mic-btn" class="control-btn">🎙️</button>
+        <button id="load-sound-btn" class="control-btn">🔗</button>
+        <button id="clear-audio-btn" class="control-btn">🧹</button>
+        <button id="toggle-drone-btn" class="control-btn">♩</button>
+        <button id="toggle-names-btn" class="control-btn">Abc</button>
+        <button id="play-sequence-btn" class="control-btn" style="display: none;">▶️</button>
+        <button id="help-btn" class="control-btn">?</button>
+    </div>
+    
+    <div id="help-screen">
+        <h2>How to use this app</h2>
+        <ul>
+            <li><b>Tap or Click</b> on any of the musical objects to play a note.</li>
+            <li>The **controls panel** can be toggled using the button in the top right.</li>
+            <li>**Drag** the figures to intuitively control their sound:
+                <ul>
+                    <li>**Vertical Drag:** Changes **pitch**.</li>
+                    <li>**Horizontal Drag:** Changes **stereo pan**.</li>
+                    <li>**Forward/Backward Drag:** Changes the **filter** (sound brightness).</li>
+                </ul>
+            </li>
+            <li>Use the **Modes** dropdown to switch between:
+                <ul>
+                    <li>**Interactive:** Play notes individually.</li>
+                    <li>**Choir Harmony:** Play one note, and a choir of figures will harmonize with you.</li>
+                    <li>**Sequencer:** Tap on figures to build a sequence, then press the play button to hear your creation.</li>
+                </ul>
+            </li>
+            <li>The **Drone** button (♩) toggles a low, persistent sound. It follows the root note of the selected scale.</li>
+            <li>The **Mic** button (🎙️) records your voice. The figures will then play back your recording.</li>
+            <li>The **Load** button (🔗) loads a default pre-recorded sound.</li>
+            <li>The **Clear** button (🧹) removes the recorded audio from the figures.</li>
+            <li>You can also **toggle note names** on and off using the "Abc" button.</li>
+            <li>Tap or click anywhere on this help screen to close it.</li>
+        </ul>
+    </div>
+
+    <script>
+        // --- Audio Context Setup and Constants ---
+        let audioContext;
+        let masterGain;
+        let mediaRecorder;
+        let recordedChunks = [];
+        let droneOscillator;
+        let echoDelay, echoGain;
+        let recordedAudioBuffer = null;
+        
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+        function initAudio() {
+            if (audioContext) return;
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            masterGain = audioContext.createGain();
+            masterGain.gain.setValueAtTime(0.7, audioContext.currentTime);
+
+            // Setup Echo/Reverb
+            echoDelay = audioContext.createDelay(2.0); // Max delay of 2 seconds
+            echoGain = audioContext.createGain();
+            
+            echoDelay.delayTime.setValueAtTime(0.3, audioContext.currentTime); // Echo time
+            echoGain.gain.setValueAtTime(0.5, audioContext.currentTime); // Echo feedback amount
+            
+            masterGain.connect(audioContext.destination);
+            masterGain.connect(echoDelay);
+            echoDelay.connect(echoGain);
+            echoGain.connect(masterGain);
+        }
+        
+        const scales = {
+            major: [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88],
+            minor: [261.63, 293.66, 311.13, 349.23, 392.00, 415.30, 466.16],
+            pentatonic: [261.63, 293.66, 329.63, 392.00, 440.00],
+            chromatic: [261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392.00, 415.30, 440.00, 466.16, 493.88]
+        };
+        
+        let currentScaleName = 'major';
+        let currentScale = scales[currentScaleName];
+        
+        // --- Three.js Scene Setup ---
+        let scene, camera, renderer;
+        let musicalObjects = [];
+        let connections = [];
+        let raycaster;
+        let pointer;
+        let showNoteNames = false;
+        
+        let draggableObjects = [];
+        let isDragging = false;
+        let activeObject = null;
+        const dragPlane = new THREE.Plane();
+        const dragOffset = new THREE.Vector3();
+
+        // --- Mode-specific State ---
+        let currentMode = 'interactive';
+        let sequencer = [];
+        let sequencerLoop;
+        
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x0a001a, 10, 100);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 15);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x0a001a, 0.8);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            raycaster = new THREE.Raycaster();
+            pointer = new THREE.Vector2();
+
+            setupLighting();
+            createClassroom();
+            createMusicalObjects();
+            setupEventListeners();
+            addNoteLabels();
+            
+            animate();
+        }
+        
+        function setupLighting() {
+            const ambientLight = new THREE.AmbientLight(0x2d004d, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0x4a007f, 0.8);
+            directionalLight.position.set(10, 10, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            for (let i = 0; i < 3; i++) {
+                const light = new THREE.PointLight(0x8a2be2, 0.8, 10);
+                light.position.set(-8 + i * 8, 8, 0);
+                scene.add(light);
+                
+                const lampGeometry = new THREE.ConeGeometry(0.8, 1.5, 8);
+                const lampMaterial = new THREE.MeshLambertMaterial({ color: 0x1a0033 });
+                const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
+                lamp.position.copy(light.position);
+                lamp.position.y -= 1;
+                scene.add(lamp);
+            }
+        }
+        
+        function createClassroom() {
+            const floorGeometry = new THREE.PlaneGeometry(30, 30);
+            const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x2a0a38, transparent: true, opacity: 0.8 });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            
+            const gridHelper = new THREE.GridHelper(30, 30, 0x4a007f, 0x4a007f);
+            gridHelper.material.transparent = true;
+            gridHelper.material.opacity = 0.3;
+            scene.add(gridHelper);
+            
+            const wallGeometry = new THREE.PlaneGeometry(20, 12);
+            const wallMaterial = new THREE.MeshLambertMaterial({ color: 0x1a0033 });
+            const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+            wall.position.set(0, 6, -10);
+            scene.add(wall);
+            
+            for (let i = 0; i < 5; i++) {
+                const lineGeometry = new THREE.BoxGeometry(18, 0.1, 0.1);
+                const lineMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const line = new THREE.Mesh(lineGeometry, lineMaterial);
+                line.position.set(0, 4 + i * 0.8, -9.9);
+                scene.add(line);
+            }
+        }
+        
+        function createMusicalObjects() {
+            const figurePositions = [
+                [-8, 1, 5], [-4, 1, 8], [0, 1, 8], [4, 1, 8], [8, 1, 5],
+                [-8, 1, 0], [8, 1, 0],
+                [-8, 1, -5], [-4, 1, -5], [4, 1, -5], [8, 1, -5]
+            ];
+            
+            figurePositions.forEach((pos, index) => {
+                const figure = createHumanFigure();
+                figure.position.set(...pos);
+                figure.userData = { 
+                    id: `figure-${index}`,
+                    type: 'figure', 
+                    noteIndex: index % currentScale.length,
+                    originalPosition: new THREE.Vector3(...pos),
+                    isActive: false,
+                    isDraggable: true,
+                    audioBuffer: null
+                };
+                scene.add(figure);
+                musicalObjects.push(figure);
+                draggableObjects.push(figure);
+            });
+            
+            const notePositions = [
+                [-6, 8, -8], [-3, 7, -8], [0, 6, -8], [3, 7, -8], [6, 8, -8]
+            ];
+            
+            notePositions.forEach((pos, index) => {
+                const note = createMusicalNote();
+                note.position.set(...pos);
+                note.userData = { 
+                    id: `note-${index}`,
+                    type: 'note', 
+                    noteIndex: index,
+                    originalPosition: new THREE.Vector3(...pos),
+                    isActive: false
+                };
+                scene.add(note);
+                musicalObjects.push(note);
+            });
+        }
+        
+        function createHumanFigure() {
+            const group = new THREE.Group();
+            
+            const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.4, 1.2, 8);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x6a0dad });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            group.add(body);
+            
+            const headGeometry = new THREE.SphereGeometry(0.25, 8, 8);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: 0x6a0dad });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 0.85;
+            head.castShadow = true;
+            group.add(head);
+            
+            const armGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.8, 6);
+            const leftArm = new THREE.Mesh(armGeometry, bodyMaterial);
+            leftArm.position.set(-0.4, 0.2, 0);
+            leftArm.rotation.z = 0.3;
+            leftArm.castShadow = true;
+            group.add(leftArm);
+            
+            const rightArm = new THREE.Mesh(armGeometry, bodyMaterial);
+            rightArm.position.set(0.4, 0.2, 0);
+            rightArm.rotation.z = -0.3;
+            rightArm.castShadow = true;
+            group.add(rightArm);
+            
+            return group;
+        }
+        
+        function createMusicalNote() {
+            const group = new THREE.Group();
+            
+            const headGeometry = new THREE.SphereGeometry(0.3, 8, 6);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.scale.set(1, 0.7, 0.3);
+            head.rotation.z = -0.2;
+            group.add(head);
+            
+            const stemGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 6);
+            const stemMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+            const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+            stem.position.set(0.25, 0.6, 0);
+            group.add(stem);
+            
+            return group;
+        }
+        
+        // --- Event Listeners and UI Logic ---
+        function setupEventListeners() {
+            function onPointerDown(event) {
+                initAudio();
+                pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+                pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                
+                raycaster.setFromCamera(pointer, camera);
+                const intersects = raycaster.intersectObjects(musicalObjects, true);
+                
+                if (intersects.length > 0) {
+                    const clickedObject = intersects[0].object.parent.parent instanceof THREE.Group ? intersects[0].object.parent.parent : (intersects[0].object.parent || intersects[0].object);
+                    handleObjectClick(clickedObject);
+
+                    // Dragging logic
+                    if (clickedObject.userData.isDraggable) {
+                        isDragging = true;
+                        activeObject = clickedObject;
+                        const intersectionPoint = intersects[0].point;
+                        dragPlane.setFromNormalAndCoplanarPoint(camera.position.clone().normalize(), intersectionPoint);
+                        dragOffset.subVectors(activeObject.position, intersectionPoint);
+                    }
+                }
+            }
+
+            function onPointerMove(event) {
+                if (!isDragging || !activeObject) return;
+
+                pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+                pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(pointer, camera);
+                const newPosition = new THREE.Vector3();
+                raycaster.ray.intersectPlane(dragPlane, newPosition);
+
+                activeObject.position.copy(newPosition).add(dragOffset);
+                
+                // Keep the object in a reasonable range
+                activeObject.position.x = Math.max(-10, Math.min(10, activeObject.position.x));
+                activeObject.position.y = Math.max(-2, Math.min(10, activeObject.position.y));
+                activeObject.position.z = Math.max(-10, Math.min(10, activeObject.position.z));
+            }
+
+            function onPointerUp() {
+                isDragging = false;
+                activeObject = null;
+            }
+            
+            renderer.domElement.addEventListener('pointerdown', onPointerDown);
+            renderer.domElement.addEventListener('pointermove', onPointerMove);
+            renderer.domElement.addEventListener('pointerup', onPointerUp);
+            renderer.domElement.addEventListener('pointerleave', onPointerUp);
+
+            window.addEventListener('resize', onWindowResize);
+
+            const toggleControlsBtn = document.getElementById('toggle-controls-btn');
+            const controlsPanel = document.getElementById('controls-panel');
+            toggleControlsBtn.addEventListener('click', () => {
+                controlsPanel.classList.toggle('active');
+            });
+
+            const scaleSelect = document.getElementById('scale-select');
+            scaleSelect.addEventListener('change', (e) => {
+                currentScaleName = e.target.value;
+                currentScale = scales[currentScaleName];
+                if (droneOscillator) {
+                    droneOscillator.frequency.setValueAtTime(currentScale[0] / 2, audioContext.currentTime);
+                }
+            });
+
+            const micBtn = document.getElementById('mic-btn');
+            micBtn.addEventListener('click', toggleAudioRecording);
+
+            const loadSoundBtn = document.getElementById('load-sound-btn');
+            loadSoundBtn.addEventListener('click', () => {
+                // This pre-recorded sound is embedded as a Base64 data URL to avoid external file dependencies.
+                const audioDataUrl = "data:audio/wav;base64,UklGRtUAAABXQVZFZm10IBAAAAABAAEARKwAAE66AAECAEAGTAAAZGF0YXUAAAD0L0A9J0E0B0c9P0I5OEdDPy5APzFBPll8V0JASz02QT58VlFAVEhBV0I6NlFBTExBVkM6PkBCTUM1MkE4S0lCRj40Rjh8VEFDO0U7SjY0V0hDSU1ETkdHS0tISk02QU9CQj5ETUlFQDczOTw4UkFDOTM1OTI4OEw4NEs2OEU4M0k5MDk4MTI3ODg0OTM2MTI5NjY4NzY1MjI4NzU5ODc0NzgzNzQ4MjU5MjE4MTIzOTM5NzI4NDEzMzQ5NjE0NzMzMTQ3OTY4NzE3MTkxMTM5Njk3OTY4MTAyNjk3MzA5MTI4Mzc4OTU1MzQ4NjM4MDY0NzI4NDM0NDc5NTQxNTM3NzQ1NzkzNTE3NTcwNjY3Mzk4MTMwNTEwMjc4OTU4NDQ3ODY3NTcwNjUzNDI4NTM2NDIyMzYwNDgyMzg3MzUxMTM4MjczNjkxMDIxNTczNjY0ODk2NTAxNDUzNDM1MjY1Nzc4MTYzNDMzMjIxOTExOTgzMTI3OTcwNjg4MTY1NDU2ODUzNzIxOTYxMTMzMTk4NTYzNjU4ODg1MzM1NjgwNTczNzA0ODc0NDY4NTcxOTcyNjE0ODExNDY1NjM2OTk2OTg3MzUzODU3MjQ2OTI5Nzg0NzY4MDUxNzk0OTY2NDE2NzE5OTMxNDYwNTI1NjUzOTExNjI1MjUzOTM5NDc2NTMwMTEzNzIwNjk2MzM2ODQ4MzM2MzEyMTUzMTI2MzA2NzY2MjQ3MjYxNzQ3Mjg1MjQwMzQ4NDQwMzc5NTE5MTIyMTI5NDQ3NzMwNzgyOTU2MDM2MjEyNTUyMjgzNjgyNzYyOTc1MjE3NDExODIzNzMxMTE0MTY4NDgyNDI0NTE4MzgxNTIwNDkxMzE3MzI0MTU0MTcwODMwNDk0NDI1NjQ2MzgyNzI0Nzk2MjU2NzU0MzU3Nzg0MDU3Mzc0NjI2MjM2NzE0NzQ2NTkxMTg0OTQxMjE1NjU3NjE3NjY5NjQzMTI3NzcxODc0MzY3ODc3NTYxNzUwNzE2OTU2MTUwNzE4Njc1NTExNzUwODIyOTMzNjY2OTI5ODU0MTA2MzkwMTQ3Mjc1MTExNDU3NDQyNzY2NDAzNjk5NTY0MTU0OTczNzY2Nzk3MzU4NTg5ODgxOTYyOTg5NzU2NzI5NjA3NzcxNjk3NTI2MjMzNTg4NjMxMTIyNTEwMjE3MzgxOTk0NDY1MTEzMTg4MzE1MzE5MzY1MTgxNzM4ODYzMzQxNzU4MTAzNzY0NDQyMjUyNzI1NDIyNzYzMTA3NDg1MDM4NzcxOTQzNjI3MDQwMjM3MjQ0Mzg0Njc5MjQ5ODQ3NTY3NzgyNjUzNDY0MjYxODMyNTQ0OTQzNjM4ODIxNjA1NDkxNTMxODYxNTc2ODY2MDIzODQ1MjMwMTAzNDI0MjE4NzIzNDEyODgzMDYyMzM0MTkzMjEwMjA1NDc1MzI2OTQ4NjIzNDE5NzY3NDExODYyMTMyNzI0NDI3NTk1MTUwNTI2NjY0NzY4OTk3NTE0NzcyOTk0NTcwMzMxNjIwMzE3NTQ2NTk1NDUxNTM4MTA5NzEwNTQxOTc2NjQzNTg1NjEzNTY1NDM0OTg0ODA0NzU1MjgzMjk2ODMyMDMyOTMwNjQyMjIwNTM5MTA1MzkxMDQyODY2NDgzMDMyNzQ0ODQ3OTEwODgyNTA5OTkxNzA2OTc3OTM3NjU5NDM5NjU3MzQ2Nzc5OTk4ODIyNDg0OTY5MDcwNzk3MjcwNTMyMDc2OTQ0MjMwNDc0NTg3Mzg5NDU4MzkxMDc4MTQ1ODg4NTI2NDIyMjUxOTY4NjY2MzQ5OTc4NTU1ODg4NzMxNjk0NzU2NzU0NDQ4MjU4MzYyMTY0MTA4ODgwNTgyNjMwODY5MjI1Nzc1NTI5OTkxNTU2NzI5ODMwNjY5OTEzNjU5NTc4MzYzMjk2ODE0NTg5NzUyMjQ5ODIxODg0MjI3NjMxMzY5MjM2NDMyMTcxMjUwMzgxNzU0NDU0MzY1MjE5NTA3NzU2NjE3NjIxNDk1NzEyMTczMDMwNjgzMTI4NDgzMjY0ODIzMzE5MzA5OTM0Nzc3MzExNTEzNDg5NzA2NzM1NDE2NzMwOTI0NzU5MzM4NDYyMTUzMTIyMjc2MTU0NzgzNDMyOTQxNzQyNzI0NDQ0ODkzMTI1MjYyMTU0ODQwMzM5MTc0MDUxODU0ODgzNjY1MTI5NTY2NTk3NzU0MzU3MDU2OTkzODUxMTg2NjQyNDgyODQ1NTczNjQ0NTY1MTcxMTMzNzg0NzcyNzY1NDgzMjgzNjIxNzY0OTQ5MTIwNjA1Nzg3MTQ3NjE3NjYwNzU2MzMxNjgzMTk3MDIxMzM3NTMzMDM2MTEwMzY0MTg1MzI1MTU2Mzk4MDUyMTM2NTI3MzYwMzQxMjk0MjY3NjE5MjIyODY5NTYzNjM5NDgxMjM0MjUzNDU0MTE1OTQ4NDgyODMyNjQ3NzE1NDk5MDM2ODIxMjUwMjk5NzIzMjY1MjE5OTg4OTg4MTA0MTg0Nzk1NzY1NjI0NTg1Mzc4ODY3MzIwMzI5MjQxMzcyNTc3NDg3NDgxNjM5NDcxOTUzMTQ5MTAyNDkzMDUwMjk3MDI0NjEwMDQyMDUwMTEzNTcyMTIyNTU3MDQxNTM0NTEwODQwNTQxMDI3MzEzNzI5NzEzODU1MDQxOTg1MDY5MzgwOTEzNzUwMjEyNjQ1MzI1NDczODE1NzM1MzY0Nzc1MTQ1MTA2MDY2NjU3NjU0MjQwMzcyOTQ5ODE1MDM1MjUzNzUxNDg5MDgyNDg2NDU4MTE3NDk2OTU1OTI2Nzc3NjY2MTA4MDc4ODg0NDY5MzM3MjIzOTIzNDU5OTI3NjkxNDYwNDM0NzI0MTk2ODgwMzg2MTQzMjUyMzExNzI4OTc4MDQ2NTY4NTgxOTc4MzM0MTIzMTE1MDgyNTg5MzA2MjE2MDgwNzY4ODU3MDU3OTY3NjEyODUxMTE2MjgyOTg4NjYwMDc1MzUzMzc4NzkwNjU4NDQ3NzM0ODQ0ODQ3Mjc1NTExOTk0MDMwNDkxMDY3NDY1MjgxMzExOTIxODIyMDU5Mjc2OTUyMDI5NzQ1NjU3NDQyNzY1OTkyODY3MzIxNzYyNjgyMDM4NDQxNzIxMzc4MTQxMjQ5MjU5MzE5NTk4NDg5MDQ5NzYxNjEzMjYyOTI4MjY2ODExMzY4Mzc4OTYyNzM4MTMyNzM4OTk3ODU4NTQ2OTI5ODQ3Mjg1MzkzMjI1MTEwNzU1NDkxODA5NDMzMTMyMDI4ODcwNDk2MzMyNDI4MTMyNTIzNDY4MjU1NTA1MzI4NjE3NTE0NzIyNTI0NDcxMDc2NjMxNjUxNzk4MzIzNTMyNDE3NjQxOTEzMTIzNTA3NzE0NzIxMDU3MTAzNzI5OTQxNDY4NTY2MDc4ODk3Njc2NTYyNzE4ODg4NzMxNjk4OTUxODE2NTYzMTI4NTk1MzM2ODQ2OTg1MDgwNDUzOTQyODg4MDk0NTEyNDUxMTg2NzE5OTczMTQxNTQ1NTA3MTcyOTYyOTUzNzcyMTA2MjUzNzc3OTIyOTU0MDI4NjIzNjUyNDMzMzIxNjgyMjI3NzUwNDI4MzM3MjIyMjczNTc4NTgxMzU1NDc4NDQ2NDcyNjk0MTgyNjUyNzEzNDQ1MzQwODQ4MTE2NTk0OTI3MzQ2ODU1OTMyNTM4NjI3MzM5NzI0NDgzODg2Mzg2MzY4MzYzOTg3NTU4NDcyOTc1NDM5Mjk0MzY2NTU4NTIzMTQ0NjMyMTk3NTAxNTk0MzkzMzUwMzUwMDY3ODE4OTUxNDI3NDUyNDEyMjQ0NTA3MDIwNzcwOTkzODUwNDQ1NzMzODEwOTI5NTM5NTc1Njk2MzY3NTk3MDM2OTg0ODg4NzQ2Nzc5OTMzOTMyMzIyNDY2NzUwNTQxODUyNjA5NjI2MjM4OTYyMzk3ODY5MjEwMDQ5MzU4ODcxMjkwODk3ODg2OTgyODQyNDkxNzk4NjkwMjUwMTA4NDIzOTY3MTc4NTMyOTM0Nzc0NTg2NTc0NTAxMTYzODczNjMwOTk1OTc1ODIwNzIyNTUyMDQwNDM1MDUwNTYzNzgyMjU4MTg5NDcxMTM4ODg3NzI3NjE4MzMwNjc0Mzc2NDkzNTA2MTM2NzIyMTQxNDI0ODY2ODU0NjI2MzU2MDYwMzg0MTQ0MTM2NTc2MTE4OTg0ODYyNDMxNzQxMTI2MzEyNzU0MjYzOTYyOTQ0MjA1NzU1MjI5NzYwODQyMDkzNzM3ODU3NjE1NTE3NTI5NzY0MjMxNDU4ODYyOTI4NTgxNTY0NDc2NzUxNjc5NTY3Mjk3MTc1NTEwMjc4NTMwNDc4OTk3MTk2NTI1MDgyOTQ4MzY0MzkxMjgyNDY5NDExNzY4OTE3NjQ5MjEyMTE1NzQ3MzQwMjQzNzY3NDQxNzQzNjk2MzA2NzI2MDI5NDExNzM5Njc2Mjk2NzM4NTMyNTM3MzQxNDUxOTIzNDMxMTIwMDQ1NzU4MjYwOTM3NjgzODE4NDg3OTcyNjQxNDU1OTg3MzM0MjU5NDIwOTk0MzExNjYxNTg3NDg2MTYxNTE1Njg4MjI0NDcxNTE5NTI2OTQ5NjcyNTE3MDMzNTAxNDI5Mzk0NTMzODU3MjI1NTUzNTM2ODg1MzQzMjQyNTI4NTc2NjQzMzM3MTgyODkyNzQ3MTk1ODUzNTAzODk4OTc3MTc5NDI5NjY0NTgzNDI0NjEwMzYzMjk2MzY5MzQ3MjcyOTI3MjA3NDExODE2NDMyMTM0MDYxNTgzODQzNjE1MzE2NDk2ODQ4MjkwNTM0NTA3ODIzNzEyMTgzMzQ0NjgxMjUwNzU0MzIyMTg0ODIyNzcxMjI1NDk0MTkyMjk1NzcyMjQwNDI4MzM3NzU1MDQxNzQ3NzI4MzkxMTQxNzI1OTQ2MzQ3NTg0MjI3MzUyODUzMzk5MTUwNjYzNzU5ODc0NDY4NTE3MjQxNzExOTkzODg4ODAzMTM0MDM2NjQyOTQ1NzkzNzUyNDg2ODE3ODUwMTAyNTczMzMwMTkzOTQ1MjA4MzM1MDQ2NzU4MTE0NTU0NDUyMjk2MzEzNzEzMjk2NDcyMDYzNjQ4NzkwNDgzMjczMTk5MTAzNjQ2NDk2MzY4ODY2MTc2OTg3OTcyNjkxNDE0MTgyNTk3OTQyMzY3NTkzMTE1MTgyNzg4NjUzNzQ2MjQ3MTY3MjU4Njk2MjA1OTg5NjY0MzQ2ODU1OTg3MzU4MzQ0NjE2ODg4NjM2MzU1OTYzODYyMjQ1MzI5NzA3NTYzMjI3NDcyMzI5ODQ2Njk0MzExNjkwMzM0MjE4NTY5NTA3MTU5NTA3NzE4NTYzODQ1NDc2NzA3NjQ1NTQzOTcwNTIyNzY3NTI2MjEzMzMxMTAzODk3Njc2MzY4NDQ2Njc5Njg3Mjg1MjY1NzkwNTA2OTQxMjY4MzI1MzQ1NDQzOTk1MTg0NzkwMjQzNjIzOTc3MDU1MzI0NzUzMDU1NzYxNTIzMjgwMDQzMzY4NjcwMzI5NDQ3Mjg0MDYzNjY0MzgzMjUxNDY3NTUzMDk0ODU0NzY2NjMxNTQ5NTQ5MjQ2MzQ3NTU3NzQ1Nzk3OTI1MzMzMTk2Mzk3NjQxMTUyNDgyODYzNzM3MTUwMjQwNjE5MDM2ODczNDM0MDM5NDk0MzMyNzk3NDQ5Nzc0MTU1MDQ0Mzk4ODg2MzgxMzA2Mjk4MjE4Mjc3MTQ1ODY3MzM0NjU3NDQyNDE3NjcxNjQ5MjQ1Nzk5Nzc0NzIzNzQ2OTYwNTEwNTk2NTM3MTYzMjcyMjk0OTY4Mzc4OTMxNzM5MTcwODQ2NzM4NTQzNzQ5MzcxOTI5OTM4OTU4MTAzNzI2MDI5NjEzMjM3MjcyODY2NTU2MTY1NjQwNjExNDUxMzgwMjI2MjM2NTYxNzk3NjgxNTMyNzE1Nzc5MDI2NjY5MzIxNjM5OTg4OTg4Njg4NzY5NDM4NDI3MTgxMTUyMjEwNzUxNTY0NDM4MjU4MzYzMTA4NzUxMDY3Mzk4MTMwMTM4OTY2NzgxNzA3NzQ1OTg1ODE3MDExNDk1OTczNzg5ODYxNjUyNDQ2MzA4OTQ1MTM1NjQyMzgyMTczNTc2ODg1Nzc1MTk0Mzk3NTA0NzE2NjM5ODg2NjY0NzI4NDMxOTcyMzE5ODYwNzg4MTI2NDIwOTk0MTI4OTUyMTQwNDI1NzI2NDMyNjQ2MDQ1NjE3NTE0MTM4NTM3NzI3ODQ4MjcxNDQ0OTUwNzQ1MzY1MzA1Njk2NDU2NzE5OTI1MjM4OTE1MDQ1MTIxNDI3NTIyMzU3NDg0NDczNDg0NDI1NjU0OTcyMzIwMjY4NDMxMjY3MDgwNjY2MTUwNjEyODQ1NjczNTA4MTE3ODQ0OTI3MDY1MzIyOTk4NzEyOTQ2NDM4NTcxODU5ODUxMzgyOTUzMTQwNDc0NzgyMTk0MTYzNDExNTE5MjM3NjU0MjMyMTU0NTE2MTQzMjY3NDI1NjM3MDQwMjM0OTI1ODc2NzY5ODc5NDIxNzU0ODY2Njg0ODg0NzQ0MzI1NjY0MTA4ODQ3ODU3NjE3NjY0Mzc3OTgyNzUyMTgyMTU1NjgzNjkwNTE5MjczOTcyMTA1Mjk5Mzg0MTQxODExMjIwNDc2NDg1NjM1OTIyNDk2NDgyNzcxODg0NzUwNjg5NTM4MTU3NTA1MzI5MDIzODE0NzU2NzY1NTc1MTg1NTM5NDQzNzM4MTg4NTY2ODYzMTAwNzU3MTM5NTQ2NTk3MTk4NTc4MjIxMjYzNDQwNzM0ODg3MDM0ODcwNjQ2MTQ4NTA3NzU2OTkyNzY5MDQzMTQ5MTQ3MzI4NDYyMzE3NDY2NjE3Nzk5ODg3NTU4MzM3MjQ4OTg2ODUwODMyOTIzNTcyNzQzODgwNzM2MTY2NTQ4NDkwMjQ4MzMxNzc4MjM3NjM5MjUzODE1MjU2NjM3MjE2OTg5MjUxNzY3ODE2NDIxNjgyOTY3OTMyMDM1MzQxOTU3MTU0OTgxNzU1NzYzMTQ1NTg1NTYzNTA4NzEzNDc5Mzg3NzE0NzU5NTY1NDQxMTYwOTYxNTIzNzc1MjQzNTQ2NzE5NzIyNDYyMjUwNjE3NDg5MTQ0OTUxMjk2MTc5MzcwMjMxMzcyNDc4NTU1MzExNDY3MjE0NDMwNTcyMzg4MzM0MTIyMDM5NDg4Nzc1MzMxMjE3NjMyMTIyMDk0NTY0ODU0NDM3NTk5NDIxMDExODAyMjY4NDY2ODQ2NDY3MzMyNDkzNDg0MTA4NDI0NDc1OTcyNzY1Mjk4Mjg5MTQyNDMxNDQ1NTI3NTU1MzY5NDcxMzc4NzkwNTQxNjc5NDgyMTE4MzI5NzMwMzQyMjQxNzM5NTk2NTQ3ODk1MjM4NjQ3MDczMTMxNTExMDI4Njc0NDg2Mjc5OTcyMDM3NzUyMTY1MzExNjg1Njc1NTYwNzM5MjA1MTY1NDExNDk2MjY3MTg1MTA4ODMxMDY3ODg4MTA5Nzg2MTA2NTEyMjM0MTMzNTYxMDY4OTk3Nzc5ODQ4OTMwNzE2NzA4MzQ1MzM1NjUwMTcyOTc5NTI5OTkxNTQwMjIxNDMzNDc0MTM5ODUwMTg3OTIwNDkwNjg0OTU5NTI3MDc4ODg5MTU4ODY4Mjk1ODg1MTEwOTM1MDk3OTg3MzE5MzY1MTgyNjkzNjQwNjIxNjk1OTg4NDEyMjE3NTgxMTI2Mjg3MDQ3NTEwODc1NTY4OTk4MzU2NTA1MTk1NDUyNzIxNDI0ODMyNTYxMzM4NzUxMDI2NDUxMDY0NTk0NDI4ODQ5Mzg3NzE0NzU5NTY1MjQwNjY0NzYwODQyOTU2MTk4OTg0ODYzOTYyOTE0MzA1NTcxOTQ4MTA5MDk3MzE0OTY5MDk4MTQ4ODY5NTk3NTY2MDM2MDI4NTc5NTI0NDY1Mzc0NDMwMTcxMzExODgzMDQ1ODc3NTY1NDg1MjYyNzcyNjQyMjM0MTQ5MzI3NTg2MDM3ODg1MjY2NDUzNjA3MzgxOTY3MzY1MzA1NzgxMjk1NTYxNzYxNjMyODQzMjY3MTU1MjI5NzY5ODc0NzMzNzcyNDYxNTM3NzI3ODQxNTc5Mzk0NTQ3NDMzNTI3MjIxMzIxMDcyNTk3NzI4OTEzMzQzMjQ2MjYyODQxMzEwNTc4NTE2NjM4MzE3OTI2NjkzNDIwMjM5NDc0NDg3MTg5NzkwNDM0NjQ1NDI4ODIxNzg1NTU2OTIzNzc1NzA3NTQ0MTQyMzA0OTM2NzU2Nzc1ODkyMTY5MzA3NDM3Njc5NjcxNTYzMTM0OTk3ODg2OTQ0OTYxMDQwODQ5NzMyODQ4NTA2MTU4MjYwMjczNjg2MzcyNzgxOTc3MzE3NDAzMjI5NTM5NTUzMzQ1NTA2MjExMjU5NDIwNjE5MDM1ODY5OTEzODMyMjgzMzYyNTA4MTIzMTM3NDExMjQwMTMxMjM2MTI4MTcwNDE2ODY5NTkzMTExNjUxMjcyOTY0Mjc4MjY1MTI2NzY3ODUyNjU3NzI3Nzc2NDI1MzM4ODQ2NDI3NDUyNzU3NDExMjk1MTUzNDE5NjUwNjU5NjMxNzI4Mzk5MTY3Njk4OTM2NTcyNTk3OTQyNjIwMzI5MjQxMzI5MDQ2Njk0MjE4MjMzMTc3Mzg3NjA3MzYwMzU2NzMxNzUwMzU4OTgyNjU1MjQ5NTI0OTE2OTcyNzQ3NDQ3MTAxODc0ODUyMTM5NDI3Mzk1NTk4MzE5MTc4MzE2MTYxOTM5NTI2MTIyNzYzMTQ1OTIyMDc2MjI0NzQ4NzkwMjM4NzM0ODc3NDU0MzUxMzY3NDU3MjIyNDgzNDU0MjQxMzYwODcxNjY0ODg1NzY2NDQ2NDcyNjg1NjQxMTA1MzkzNzY2MzcyMjI5MTI0ODEwNDY1NzUyMjMyOTIyNzQxNDUwMDU3ODk3MDc3OTY3NTQwNDQwMTMyNzEzNjY3OTEzMTQ5NzYxODUyMTI5MzE5NzY2NDEzMzQ5MzExNTkxMDgzNzM5NTIyNDg4NTU2MDMzMDI5Njk5MDU5MjY3MTcxNjk4MTY0NDY1NjM2MjYxNDMwNTA0NjUwNTYyODc2MjA1ODg5ODQ5MTQ4NDcwNTAyNzQ3NjQwNzUyMDExNjMzMjc0MTIzMDM2MDk3NDU4Njc1NDU3MDQ4MTA5MDk2OTU5MzYzNzUzNzYyODU2NzQ4MTY4NTQ2MTExMDk0NTEyNjI2ODcxMjgwOTg5OTU1NTUwMzYxMTEzMzQwMDkxNDQxNzIxMTU4NzcwMTczMjY4NzQ3MjE5MDQ4NDIyMjA1NTI0MDYyOTkyODIyMjk5NTI1NzY3MjgxOTE2MzI4MzYxNjc2NjU0MzU4MTQ1NzU4OTE0Mzk4MjY3NDY4NTcxMzU4NTM3MTgzMzU0NTg4MzUyMjE2NjI2NzMyMDQzMTY0Nzg3NjU2NzM3ODUxMDU2MTM3Mzg2NDE1NDMyODY5NzMzNDIzNzE5MDUyNDc2NDg5NjU4NjIwMjY1ODg4MTQ3ODc3MTg1MDIwMzY3NzQ4NTM5MjkxNzYzNDI1MDExNzQ2MzQ3OTUwNjEwMTY0Mzg4MjA2MjY5NTQ3NTM4MTU1NTUzNTM3ODMwNjQzMTQwMzExNjc0NjM4NjUwOTg3MDcyMzUxMjUzMjA1NTY0NzU3NTQ1MjY1Njc4NTQ0MzYzNjg4NTgzOTUwNDk4Nzk3MTg3MDc2OTU2MjMyNjE5MzM3MTkzNTU4OTE3MjU0OTg5OTg3ODU0MzI1Njc0NzgxMjk1MzE1MjQxNDM0NDk2NzU3MjYxMjkwODcyNTgyMzc2NzI0MjQ2NDg2MTY3NzMzNTUwMTU1NjE2MTU0MTQzMjk3MjgzMDU2NDgxOTQ4MTEzMjY1MjE0ODQ2MjkxNTUxMzU5NjgyNjI2NTUzNTA0NzgyOTU3MTU2ODk3NTc2NTUyOTcwMTY0MzIxNTA3MjM3ODk2Mjk5ODU5NzM2NjUwMTE0NTgzNDI2NjU3NjgyMzQzMzIzMDk0Mjc2NDYyNTg3NDM4ODYzMzg5NjQ5MzQ0MTczNzkzNDcxNTEyNjE2Mjc4OTI4OTU3MzY3MTYzNjk4NzQxOTUxNjUwMTg2NTg2NzIyMjYwNDI0NzY4OTU5MDQ3NTE1MDQxOTI2NjQ3OTY4MTA4MTcyMDM5NzUxNzM2OTk2OTg0Nzk1NDUxNjUzOTkzODY2MTI3Mzg1Mjk0NDk5NzMzNzU2NjE4NDQ3NzMwMjM1NTY0NTY2MTEwNjk1MTUyNDc0OTkxOTU3MTI0NTM4MTU3NDQyNzgzMzc2OTE5MjczMzYxNTI3MTA1NzA0NTE0MTgzOTU3MzMyMzc2MzY5MzU4ODQ4MTc0MjgzMzM3NjY3OTk5ODQ4MTE1MzA1Njk1Njg5NjczMDcwMzcxNTM1MTE0NjcxNzIzNDE4MDcwNTEzMjUzNzM5NzY4NTAzNDcxNjEyMDU0NDEzNjcyMzM2MzM4MTU2NjYwNDM1OTUzOTIzNTU1Mzk3NzE5MjU1NDQxNzA4NTAzMTM5NDI2NDQ1NTA0NjQ1MjkzMDIxMTY3NzQxOTI1OTMxNjQ0NzYwNzUxNjk1MTYzNDc4OTk1ODYxNzk4MjM3NjM5MzM2MzIyMDMyNjIyNTA5MTUyNzYzNjEzOTY3NDYwODE5NjA0NTcxNzU2ODg0MTc0MDU5MjYxNDgxMjMyMTA0MjU5NzU4NjE4NDUzNDYzMjEyMjM1NzI2MzkzNzI2ODkzNjU3ODU5Mjg3NDgzOTk2MDQxNTAzNTgyNTU3Mzg1MTUxNDQ4MzMwNDcyNDgxMTE0NjQ5NjUyMDI0MTY3NTUxNTg1NjgxNjQ0NjE5OTM0NTEyNjkwMTEwNzU2NTI3OTc4MjA0NTMzMjM0NzU4NjgxODQ5ODY5NDE4OTE1NTMzMTk5NTg0NTI0MDgwMjU4MDY5MjE1MTY2MzQ5MjQ2NzM1OTQ0MTM2NDUwNTA2OTQ1MDk2NzE5NjkxODUwNjU4NTkxMzk2MDQxMjg2OTQwMjU4OTMzMzIzOTUwODUzNDg5NzQ4NzYyMDU2MDc4OTc2MDMzMDI5MjUxMTc2MjY5NzY3NzQ0MzY0MjMzMTI0MzQ4OTg0NjEyMTU2Nzc1NDczMjA2NjkxNzU5MDYzMTUzNTM4NjcxMTI1MTk5Mjk2NDExODExNDcyMTY4Mzc1ODMwNTIwMDI5NDM5NzI4MTg4MzE2MTMyNDExNDM5OTMwNzk2NzIxMzkzNzkzMTU2MDU1MTc3ODU4MjUwMjU5ODUwOTU4MTk2Mzc1NjM3NDgxMTI2OTkzMzIzMTUyNTMyNzU4NjQxODc0ODUwODc4MjQ2MzQ0MDYwMzg0NTg3MTU1MzY3NzIzMzEzNDQzNTMwNjE2NTI5NjE0NzEwNzY2NzIxNzA1NzMxNzMzMDU2MzA1NjEzNzY3MTc5OTczNTEyOTk5ODQ5MTU0ODk1NzIyMjcwNzE1NTIyNDgyMDkzODY4NzQ3NTU4MzYyMTk2Mzg5MzE4NTE1NDYzODIyNDY2OTU3MzI1NjI4MjI1MTk1MDI4ODgwNTc5NDMyNzE4NzQ3NTA1Mzc3NzgxMjgwMjQ2NzI2Mjc2NzM2OTk1MDQ1MTkxMTE2NzcxMzE3MjUwNjQzMjMxMDY1ODg3NzI3ODQ2MTUyMTE1MTgyNjk2MjcyMDM1NjUwMDI0Mjc1NTExNDY5ODcxNTQwNDIzNDIxNzY3NzM0Mjk3OTI4MDIwNTc0NDIzNTU4OTE3MjEyODYyMDM5MTc0MDIxMDgzMzQ2NzI0NjEyNDI1Njg5NzQ4MjI5MTE0NDc2NzUzNTk1MTgxNzUzMzc1MTA5MzE3NTM2NjMxMDYzODYxODk0NzI0MzMyNjY1NTkxMzU3NTU3ODc2Mzg2MzU5MzI2MTI5ODcyNjExNjU0NTIzMDExMzg2Mzg1MjcyMjM4NzQ2MTc5MzcwMjMxMTIxOTY0NjExNjQ1MzIyMjMwODEwNjU4Mjg4MDM1OTE0OTI5MDgyMzI0MjY1MTk2ODIwMTM1NjUyNjU5MTkyMjU4MDUzNjQyNTgyNzE0Njg2ODg1MzM5MzI0OTc4MzUwMTE1OTQyMTMyMjk2NTE3MjQxNzM5MzUxNzYwNDczNzA5MTIzNzUwMzcxMzI4NjI5OTMwNTY2Mjc2MDcxMTQ5Njk5MDU4MTM5MTA1MTM4NTM3MDQ4Mzc1MTE3MzE3OTM5NjU0ODU3MjUwNTg4NzYzNzEzOTE3MzY3MTUxNzY5NDgyNzYyNTc2MjM0MzM0MDczNzM2ODQ2NDI3OTE4MjQyNzUxNjMxMTM4MTg0OTQ4NzM2NDcxMTUxOTE5NzM3NzMzMjc5OTY3NDI2MzcxMTY1MDgyNjY0NTE5NjY1MTk0OTU2MDQyODk5NjI3NDgzNjI0OTM1MTAzNDI3MzI1NTgzMTQ4NTQ5Mjk0NTgzMzM2MzU5NDY5MDM5OTY2MTU4MDkzMTg4NjkxMjc4NDc1MjEzMjE5NjEzNDQ3NjEzNjg4NDk1MTc4NTEyMTY1MTgyNTIyMTI3ODYwMzIyNzY2MTQxMjQxNjUzOTY5MjM2NzQ1OTYzNzEyNTQyNjQxMzQ4NjM4Njc3MzU4NzI1NjgyMzM3NTY5MTA2NTI1MDgyNzcwNTg0MzY3OTQ0MTAzNzQxMTk0MjEzMzU1NTQ0NTI2NTA5ODczNDIyNTYxMDI3MzUwNjc1MTk4MzY5NTM2NzY4NTYzNzc1NDM1NzQ3OTE4NTc1OTczOTMxNDY5MzM4NDc2NDMxMTMxNzg1MDU4MzcyNzU3MjY4MjQxODc2OTkxMTQyMzE0NzI0MTY2Mjg4OTg1NzQyNTUzMDUwODgyNzI5NjMxMTY3MDk0MDU4ODc1Nzg0Nzg5Mjc0MjYzNjA2MTE3MzMyNjIwOTMwMDc2NzQyMTc4ODYzMzQxNzMxMTY0OTg5MzQ1MTM0NTI0Njk4NzQxMzExNjExOTcwMTYzODIyOTM5NjU4NjM1MDI2NjU4MjgzNzUwMzc1NDQ2MTg1OTc2MTc1NjgzMTY4MzY5NzY3NDQ5ODYzMTE3NjE1Njk4NDc4ODg0NDUyMzIwNTMxOTc0MzcyNDgyNDY3ODQ3NjM4ODkxNTQ3NzUzMDQwNzI0OTMyMTUxMjYzNjEzNDM1OTQxOTY5MjE1Mzc0OTc4NzE4OTkxNjM0NTYzODk4ODQ4MTg0ODMxNjI2NjE3OTcwMzI3MDMwMzgyOTY1MTI5NjIyNTA1ODYxNjYyODcwODgzNTM0ODczMzMyNDI2MjE2MDQ3MzQ1Mzc4MzE3MjQ4MzQyNDk5MjY3OTQ0MDQ2MTM3Mjk0MzI5MDk4NjIzODYzOTc5NTI5NDU0MTgyNTkxMDk5NDUxNTAyMzg4NzIxNTMwNzIzMzg5MDQ0NTg3MjU5MjU2ODQxOTU3NjgxNTkxNzM2MDUyNTY4NDQ3NzM0MTM0ODU2MTY1MzExNzQzNTA3MTU3Mzc5NjM5ODYyMjMyMTg5MDQ0NjgxMzQxNTYxMjY0NTU1NDkxODIzNDg0ODIxMjc1Mzc0MDYxOTk3MjU3ODUyNzk1MTQxNjI0MjcyODMzNDAzOTI4NDYzMTk3ODUyOTI2MzIwNTU4MTI3ODU3NjE5OTg4MzUzMDUyMzkzNDk4NDMyNjUyNzM2NDMyMTM2NzIzMzg5NDY0OTQzODgyMDcxNTYzODU2MTUwMTg0Mzc0MTMxNjczMTU3NjY5NjM0NzU2NzM4MTMyMTYyMTE3ODQxNTk2Mjk4Mjk2NjY2NzI2MTAzODY0MTY3OTczNDUwNDE3MDgyMjU3MTU1MzE5NDM1ODYzNzMwNjgzMTM1MTYxMTM1MTA2MDYzNjY1NDQxMTYxNjQ4MzU1OTEzMzU2NTQ5NTUzMzg2NTg1MTY3MDUxMzA5NzU2OTgzODc0MTE2NzcxOTQ3Nzk5ODg2OTk5MTIyMzE4NzA5NTA4NTY1MDUwNTU3MjQ2OTU3MzI3NjkwNDM3ODU1NTI5OTQ4MjMxMjgyODc4OTYyNzM4Nzg4OTUyNzQ2NzA3NTMxNjQ5MTczNjI2Njg1MDYzMjQ2NTQ2NjM2MTE1NjY0MDI3MDYzNjM1NTg2MjYzMDI3MTM3MzA5NjgxODYzNTc5Mjc1NDM2OTY3NDcxNzIxOTczNDMwMjk4NzgzNDY3MTczMzg0Mzg3NjU2MzcwMjY2OTM1MTg1MTY3NDEyOTQ4Mzg3MTU3MTAyODYzNTUxMzM4MzE4NDM5Nzk0NTU4OTU1OTg3MzIxMTAzNjI1MzUzODEzMTg3MjI0ODEwNDYyNTExODUyNzM0OTUxNDY0MDM3MzIxMjA5ODQzNjE1ODQ1Nzk5Nzc3NzM4NjI3MzQzMzI2NzY4NTYzMTk4MDcyNjY3MjY2NzYyMjI3NzA5ODIxNzc2MDUxMjc1Mjk0Mjc3NDgzNjI2MDExOTg2NzM2NzQyMjEzNzA2MzgxMzA2Mjk2NzM2NzI4MzYxNzk5MzY5MzU4ODU0MTIzNDY2OTU3NTM5NDQ2MjIyMTkxOTE5MTUwMTU0NzQxODY0OTQxMjIzMzk3NjI1OTU5NTg2NzMwMDYxNDExMzU5Mzg1NzM0MzM0ODIwMTk4MjU3MzgzMTIyMTMwNDczODg2ODc2NzY1OTI4Njg4NDk4MzQxMjM1MDM0Njg1ODY4NjY0MzIxMzkwNDI2NDQ5MDM1MTY0NzY4NDk2NDUyMzA3NzUzMTg5MDM5OTYxMjM4NDM3MjUyNzQzNjkzNTI1MjYxOTU0MjI2MDYwOTcyNjEwNzY2MTk5MjI5ODkxMTA2OTg3OTY1NTI5MTQ5Mjc4NjI3MTIzOTg4NDQxNzI1OTIzMzkzMTYxODgzOTg2MzgzNzE2OTU2MzMxNjYwNTY5NjM0MTM4MTk2NDY2MzU5MzI2MTY5Njc2MTY3Mzk4MzYyNTY1NzIwMjE5NDM1MjI4NTA3NzE4NDU2ODgzMTcxNjk4MTk0NjgyNjA2NjY0NzY1NjIzNjIyMzcyNzQ2NDkwMTI4NzYzODQwMzcyOTc1ODU4Mzg5NDY2MjI1MzcxNjE5ODc4OTE5NjEwNDUxNjMzNzY1OTcyMTc4NTEyMTY0MTE2MTc4MjE5NTk4MzU5MDc4NDMzMDcyMzUxMjU1NzYxMDI1OTk0ODUzOTMyNzg2MDk5NzI4MTg4NTM0MTY0NjI3NzQyODQxMzM1NTI1NzkwOTYzMjk4MjQ5NDIzNDc5OTY3NDgyODE4OTg4MjkxMTAwMDI2OTQ4NTQ5Mzc2NDIyNTUzOTY3MjA1ODg5ODIxMTMzNzI1MjIwNzY5NzY3NDExMzMyNDI2NzM1MDUwNTYxMzI1NzQzNjMzMTU4NTk5NTc4MzU3ODUzMzI4MzEzOTcwMzUxODQxODc2MjA1NzU1NjUxODQyOTU2MjA0OTg2ODgxNzMzMTM2MzIwNDE3NTYzODY0NzUwODQzNjM4ODc1NzM2Njk1NjQzODMzNTgyOTkxMTM5Njk2MzM4MTk5NTA2NjA2MTE1OTU1NjQyNjIzMDY3MTMwOTU0ODUxMjI5NjM3Nzk4NjA0MTIxNzU0MzA1NTU4MjE4MTEzMjY1NTY5NzYxNTU0MTg1MzgzNzY5NDgyMTQyOTU2NDUxNjk0NTE2MzU1OTI2MjU1NTg4NjE4NDcxOTUzMTQ5OTgzODExMTMyMTY5MjY0NTYxOTk3MzY1MzA1ODUwNzQ3NjA3MzYwMzgzNzQ4NzY2NDExNTEzOTcwMTUxOTkxODYzNjUyNDU0NTQ0MDcxMzI1NjA0MjQzNDUyNjYxMTcyMjkwMjUyODIyNTYxOTI2NjY0ODU2MzYxNTI3MzY4MTEwNjY4MTQxMjcyMDI2MTYxMjI1MTE4MjQzODUwODcxNjczNzY2Nzk3NDQ3MzA4NDYzODk1ODc1NTMyMTIzNTAwNjUzNzU1MDU3MjM2OTI3NjUyNzc1MzY4MTEyOTYwNTU5NjI1NjQ2MzgyMzM5NjUyMjEzNzQ0MTc1NDM5NTM5NTUzMzIzNjkwNTUwMjcwNjE1ODk3OTMzNDg4Mjg2MjgxMDM5MjQwMzcxMjc1MzEyNDQ5MDYzNzQ5NDI2NDYzNzExOTEyODE3NjM5MzI0NDY1MjgxNDU5NTI3NDI4ODQ5MzE0NzE2NjQ2MTY4NDc5MTU2MjI2MzE2NzEwNTcwMTg4Mzg3MjUxMTc2MjU3NDIzMTA2NTEzNzMxODQ5NzE1NzY4MDUxOTE3MTA3ODY5NTQwNjQ2MjU5NTM1Mjg5OTM4Mzk2Mzk3MjczNjI2MjM5MjI2NTY3NTk0MzY5Nzc1MjgxODQ0NDM4MzI4NjcxMTI1NDg4NzI3MTE4NzI1NzA1NTEwMjc4ODgxMjYyMzQ1NTE2MTQzMDc0NTc4OTg2ODUzODk0MDc3MjI1NTU1MzExOTk3MDkxNTUzMjExMjc4MzUwNzE3NTI5NzY0MjQzMzA0MTI2NjM5NDcxMzc4NzgwNDM5MzY0MDc1MjE4MjQ5MjU3NzU1MzgxOTY3Nzc0NTg2NTc0MzcyODE2NTE2MzE0NjM5ODkxOTc1MzkwMTIzMTY1NzM5Njc2NTg3ODY2NTUxMDc0MDUxNTY1MzQ2MTc5MzY5MzI3NTYxOTY3NDc2MTcwMzMzOTkyNjg2OTcwODkyNzA4MjU3MzMyMDgyNzA3NjE3MzE3MjQ4OTQyMjM0MTU0MTQyMDI5MDM0Njc3NzI4Mzg2MjA3MDMyNjQxNDU5MzkzMDI0MjQ0NDI5NDc2NTgzMzEyNTA3NDg1NDY5MDc3MzUxMzgyOTYzNjk0MDk0NjMzODg1MTQ4Mjk3OTQ0NTQ0OTk4MjUxMzI0MDI0NDM1Mjc2MTkzOTIzNDMyMjk4Mjk1NTg4NDc4MDU2NDcyNzcwMTEyODYyNzYyODE0MjYxNjkxMjIwNDIzODg1NjI4NTk1MzM0NzM4Mjc1NzU2MTk3Njg3MjU1MTA4MzcyMjE0NDQ5NzYwODQyOTgzNzk4NDUwOTU4OTc4MjY4MzExMDc5Njc4NzU3MjY1NzM3MjcxMDU3ODU4MjIzMzQ3NTg3MjExMTM1NzY3NzYxNTU0ODkzMjcxNTI4NzYzODQ4MjkwNTYxMzM3NTY2NjM2Mzk3MjM5OTQ2MzkwODA2MjgzMTU0NTMxNDQzNDM0NTA3ODc4NzgzOTkyNzY5MjU5ODAyNjMyNTMyOTc0MTQ2MzE5NzUyMzQ4NjM4OTMyMzk4NDY2ODQ1ODYyNTI5MTQ1OTc4MDUzNTk2Mjk1NDkzOTMxNjcyNDcwMjU0Njg0MzE4Nzg5NTAxMDI2MTQ3ODYxMjE1NzY4MjgzODIyNjU2Njk0NDQ1OTM2MzU4NjA0MTc1NjMwMzM4MTU1MzE5OTU5NTcyNzA5MjY5NTM2Mzc0NTI5NjIyMTY1NDExNDk5NjEwNDQ1ODY3MzI2MzI0OTQzODUyOTM2NzU0MzU3NjI1OTQwNDI1NzcwMTc0NzUxMjMxMDY1ODMxMzY2NzcyNDkyOTQ2NDM4MTM5MDU5MjY1MDU1MzI5MDIzMjI4MjkzNTcxMzYxNzI2MDY3OTEzMzg1MjMxNjI0NjEyNDI1NzExNzI2ODcyOTkxODc5MjM4MTM1Mzc0NDcwMTQ0NzU2NzM3MDY1MzQ1NTgyMDc2ODUxNzQxMTcyMzU5Mzg2NzQ4NDIyMjA3NzMyNzY3MjI2MjI3NzE0NTgyMjQ0NzIzMjY3MzUyNzI3MzkzOTI0Nzk2NzYxNzU5MjM0Nzk5MzMzMjUxNTQ4NDIwNjMxNzI5MTk1MDI5MDU2NDc2MDIxNTQxNzgzMjcyNTUzNTMxMDcwNjk0MjYzNDYyNzcwODQ3NTA1MzI4NjYzMTkzNjQ3NzQ3NzIyMTM3ODMwNjUxNzU1NzEzMTg1NzU1NDkwNTI1MjE2MjUzOTYxNTYzMTM3OTEwNjUzMjI2ODQ2OTcyNTI0NzI0MTk2NzU1MTE1NjY1NDc5NzIyODQzOTU4NTMxMTE4MjYzODUwMTc5NTA3NzE0NzcyMjU0MjY0NTU2NTcyOTk2NTYzNDEwNDYzOTg0MDY0MTUyODU1NjgyNzg2NzI3Njg3OTc1NjQwNDQzOTk3NzI1OTExOTkzMTI4NjU0NDk0Mjc4MjI0NDU1MTIzMzU5MjU4MTQyMjYwMjM1MTA2MDQ5NzY2NDk2NzcwNzcyODYyNTYzNzc4Mzg1MjI4NzQ1NDM1MTM5NzM1MDQ0NTMzNTcwNDE1NzIzNDY4MjU1MTQ2ODMyODExNjEyNDQ2NDM0NDc3NjUyMDc3ODUzNzMxNTA0NTE5NzI4NDM0Mjk3NzE4MzQ5MzM3MjQ0NTEyMDc0Nzk4NDIyNzE3NDM1NzQxNTM0NzYxMjQyNTEwOTM2MjU4MjI4NTA4MzIzMTAzNjMwNTM3MTYzNTIwNTEwNzg1MzU5NzcyMzY2Mzc5MzcwMTEzOTcyNTMyMTA4MTkzMjIyOTU1NDkxMDQwNzU3OTY5NjQzMzA5MTAyMTk0NjA5NDg4NjAzNzkxODg1NzE1MDMwOTg1MDExMzEwMTU3NjY2MTAxOTU5NDgyNjY4MDM0ODcwMDYzMDUwMzU4NzI1Njk5NTI0MjIyMTQ0NTY0MjI4NDI3MTYwNzI5MzYxNTI1MzY3NTcxMjk0NzY1ODQ3MzE2OTg2NDcyODc0OTcxMjQ2MTczMjk3NjkzODczODc3NDU1Njc1OTY5MTUyODE3NTIyNzU1MTcxMTE1MTgyNjk3MzA1MTc5Njg5NjYzMjIyNzY0ODU1NDEzOTEzOTM0NzE3MzkzNTk3MTM2NTI5NTIwMzc2ODU0NjQ4MzU4NDk3MDU4MzQ5MjM5NDQzNTMwOTgyNjIzOTUyMjMzNjcyMTg5NTc2MTQ0OTE2OTk1MzU5MDQ3NTE2NjUwNzE0NTExNzU0ODc4NjkxOTI5NzkzOTc2NTM4MTMxNDg3MDMyMDMwOTEzOTg2ODUwODcyMDk4NDM3MTI3MjcxNzUzNDkzMjk3MTI4ODAyMzI2NDYyNjk0NTEwODc0MjgxOTc1NTU1NjMyNjU5NTYzOTMxNTIzMTc5MjUzNTIxMTU2MzYwNjk0MjE4NTkxMDI2MDk4Mzg3MjcyODkyOTgxMzM5NzM3Nzk1NjkzNTgyMTQ5NTM4MTY1NDc2MDI1Mzk0MTE0MjEzOTQxMjY4NDMxNjk3MjA2Mjg5NzYzNzI2NDg5NjU4NjkwNjk3NDY3MjMzNDEzMzg5NTE0NzYyNTc5Mjk5NDMxNTI4NjQwMTAxNDkxODQ2Nzg5OTI1NDI3MzYwMzcwOTY2NTI3OTc4MjIzNzM3NzUzNzg3MTI3NTE2NTI3MTA1NDI4OTk3MTMyOTEzMzM5MjM5NTA1ODY1NTMzNTMxMDgwOTI5OTcyNzA5Mjk4MjE4MTA4ODg2MDU1MTIzNjMyMTE0MTk1NTg4NTY2NDcyNDY1NDIyNDk5NTkxOTg0NTI3NDI0NzgzNTcxMjMyOTYyNzkxMTkyNDU0MjU5NjIzMTk5MjI4NTk1MzIxMDMzNTAxNTc0MzE4MDUyNTYyMzUzNDU5MDM2NDU3NTE5Mjk1MTExOTgzNDYzNjg2NzM4NTYzOTM3NTY2MTcyNTU0NTY2MTM4NzA0MTMzNjQxMDkxMjIxMzY2MDMzMDI5NDM0NTMwNzU3MTA1MjM3OTEwNzQ2NTY4NTI2NDIwNjM5MjY3MTg1MDI3OTc4Nzc0NjQ4NDc1MzI4MTMyNTMyNDUxMDk3NjcwMzIzMzU4NjQ2Nzc0NTg2OTU0NTA4ODY1MzY1NDQxMDQ3ODc3NTg2NzIwMTI4NTQzMTI3MzU2NTQ5MzU4NzgzMzYyNjkxMTM0NjYzNDU0Mjg3Nzk0NDQxMzg5ODE2NDIyODY5MTgzMjMwNDE4OTU5MzQ1MTEwMjg1ODQ2MjI3NzcxODk2MzQ4MTc0MDIxMzEyNDcxNDkwNjU1Mzg5MjE1MTk3Mzg0MjM5NjI1NjU3NzI0OTQ3MzA2NjEyMDgwNzIzMjIyNzU2OTkyMjQ4NzQyNDIwNTMwMTUwMjU3NTUwOTMwMTU0ODE3MDQ1MTM4MTUwMzkwMTY5NDU5OTY3NDU4MjYwMjYwNjMzMzg5MjkwNDk2Mjk4MDU3NDM1OTQ0NTgyODcwNTc5NTEyMjI3Nzc2NDk0MTQwOTk5NzM0NjMyOTQ2MTgzNjExMzk1OTEyMTkzOTk1MzQ1MDI4Njk5MzQ2MDIzNzI1OTY5MTMyNjUxNTUxODIzNjI3MjU1MTA4OTkyODc1MzE1NTc4MjM2NzE1NDQ3OTc5MDU0ODkxMjgyMTk1OTgzODY2MjI4NDI5MDU5MjIyODk3Mjg4NzMzODE2NzU4ODk3MDM4MTcxMjExNDQ1NzA1MjE2MDY0NjcxNzg4NDcyNDkzNTc4MzU3NTg4MjQ2OTUwMjE3ODQwNjg1ODc3NTk0OTE3NDU5NTI5Njg3MjU1MTk3ODk2MTEzMTg4NzI4NjE5MTQ1MjUwNTg4NzYzNzEzOTU3NTg1MjU0NzI1Mjk3MDIyNTc2MjU3NDM3NTAzOTQzOTQ4NzM3MjM4MTYzNzE5ODg2MjgwODE3MzgzMTM2OTMyODg0NjExNTU2MjU5MTQyNDIzNTUzNTI5NjEwMzUxODQ1MzU5NzgzNjk2NzE4OTQ2MDYwOTIyNjExODQ2NTQzNzgyMDY4MjY2ODg2MjEzMjg4NzI4ODY5NTg3NTUzMDcxOTUyODk4ODQ4NjQ1MTI1NjQ1NTcwMTc3MTAwMzIwNDkzNDU1NzM0MDk1MjY5MTI5Nzg1Nzc3OTU2NzY4MDIwNTQ2MjA3MDM0MzE1MjIyMzc3ODUzOTc1OTE5NzI2OTMyMjUwMTQ3OTgyMTE4Mzk5MTEzMDY1ODU0NzY3MDQzNDQzNjUzODQ5Mjc4MzQzNzY0ODY0NDU0OTEwNzA4MjQ4NzU5OTI0ODYzOTcyNTQ3OTg4OTg4NjkxNDQ3MjM0NDgzNjY3OTM2NTQwMTYwNTcxNDI4Njk2OTUxNTUxMzE4MjQ5NDQ4NDc4MDUyNzM1ODk5MDQ2Nzc5NDkxNzIzODI1NDQyMTgyMDY5OTE3NTczNjIyOTEyNzI4NTk4OTg1NzQyNTM5NzEzNjc1MzUyMjU5NjE1MTgzOTg0NzU1OTQ1NDkyNTA5MDU5NTM2ODYzNjE3MDk4NTU2OTIzNjYyMzcyNzc1NzM1OTYzOTY4NTE3ODU3NjE5MjUyNjEyMTk0NDcyMzI0MjI1MjIwNDk0MjEwNjY3MTM1MDgyODQ1NTQ2MTU2NzI4MzU4NDk3MDI4NDQ1NzcyMjQ4NTQ0NDIwODc5MTYwNzI5MTY3MzcxMTQyOTQxOTQyMTE3NDgzNjI0NTE2MTI4MTU1OTk1ODk3OTU3NTgxMTI4OTk1MDExNzg3MDI2NDQ4NzE5MzY4MjE5Mjk0MjExNTgxODYzNzM3MzA5MTY4NjY2NTg1MTY3MDkxMTY3NTUxNTQyNjg4MzU4MDc0MjcyNjg0NzE4OTY5OTY4Mjg5MTQ4ODc5ODQ2NTM3NzMxMTQ4NTEyNDIyODUwODIyNDg2ODMyMjk3Mzk2OTUxNDQyOTYxOTE1NjI0OTk1MjYxOTU1NzUzMDU1NzQ2MDM2NTkxMDYzNzA4MzQzMDMxODQ3MzM5NzI5Mzk2ODEzMjUxNzgzMTc5MjU4MTQwMjkxMTE0MDMyOTc1MjE3NzY3OTY2MzYxNTI3MzY4MTEwNzcyNzg1NjUxMjU5MzM2OTcwMzQxNDMyMjk4MDU3NDM3NzUzMDI3NTU0NTM3MzEzNzU5NjgyNjM0ODEzMTYxODk1NTcxMTM2NjgzMjA5NjQ4MjYzNjc2NTIxNzMwNzE3MjgyMDU0NjY3NjIxMTE0NTU5OTg4OTkzNTEzMzI3MTMyNjUxMTY3OTE3MzE5OTU0Nzc2NzMwMzg4MzA3MTIzNjgyNTI0NDYxNDMzMzYwMzk4NDcxMjU0NjMzNTMzNjkxMDI3MzQ0MTEzNTY5NzM4NjE4MzMwNDk3NzY5NDM4NDUyMjUwMzk3NzYwODU1ODYzMjY0NTU2NTY3ODk0OTE2NTUwNzI0MzI4NTY1NDg1NDUzOTUzODE5MTUzMTgzNjU1NDkyMzIxNjMyOTc1MzYyMjk0MjUwMjIyMTE0MDk2NjIzMjk4MzI3MTcyMTY1NzUzNzExODQyNjgyMjE3NDEyMzUxMzM0MDU0MjIyOTQxNTc0NjI1ODczNDcxOTY1NzcwNTAyOTI5MDgyMTk3NjcwNTkzMjI2NzQ4NjI2NDg2Mjc0NzExMTA3NzU2OTk1NzI0MTM2NTI3MzYwMzU4NzUzNjQ1MDY3OTY0OTg3NTU0OTgyMjI4MjUyOTMxNTgyMzc0NTY4NTMwMzI2MTcyMTE4Njk2MzM4MTU3MzA5ODQ0MTUwODQzNzQ0MzI1NjA0MjEzOTU3Njg1NzI5ODc1NDM5MjA4ODk1MTk3MjIyNTg2NDI2NTk1MjQwMTU2MDMxMTk2NDAzMjg3MjI2MjczNTk5MTIzNDc4MzE1ODMzMzg3MjcyMjE1NzY5NDgyMTQ5MjcwNDM5MjM2NDMyODY5NzQ3ODg3NjI3MjA5MDI2NjU4NDQ3NzM0NzQ1NDQzODE3MDI2NjU3MjQ2OTEyMzU4NjkxMzg5NDY3MjIzMDk3NzI0OTY0NDc2MDM5ODY5MjEwOTkxOTUzNTY2MzM0ODc2NjA0NjgzOTYxNjk2MjcyMzU4MTQzMjk5MjQyMTM1OTkyMTc1MjYyOTg3Njc3NzEyMTIzMDUxMzA5Njg1Njk3NTI3NjMyNTE2MzU1MjYyODU2NzQ2MTg1OTIwNjg4NDg0NzY4OTU4Mzc5MzU1MjM0NjUxNjAzODQ5NzE3NDExODIzMDI0MDcyMzIyOTU1NDg1NjA0OTI2MjU1Mjk1MzE1MjQ1MDU5MDYxNjg3MDIzNzI0NTY3NzU5MDYzMTUwMzg3OTg3MzIzMTg1ODc3MjY2MTYxOTUwMzYxNjM3NzEzNjMwNTYyNDYzODMwODY2NzcxMTU5MTA1Mjk2NzMwNjU5MjQxODYxMDQyNjI0OTM3NTAyMjkwMzQxODIyOTY4ODY0NzU3NTMxNzE1NzY1NjI2MzU4MzE2MTQ0NjY3NjE2NzgyODQwMjUwMTE4Njk3NjgxNzQ1NTU4MTAzNzE4NzQ2OTY0MzA1MzcxNDY5MTEwNTY4MzUyOTYxMDI1OTk3NTA2ODk5NDk2MTIwMzkwODQzNTU2OTk5Njg3MTQyOTQ0MTM5NDI5MzI5ODAzNTg5MjI0NzU5NDI1MjkzMDIzNTg5OTM5NDU5OTI2ODYyOTkyMzc2NDkwNzU2ODU3NjU0MjMyMTQ0NTUyNDc2MzY5MzU2MTYyNDc5NTQxODAzOTYyOTUzMjUxNDI3NzQ3NjUxODg3MjY5MTI5Njg3NDk3MDIyOTU0NzM5NTk2NzUzMzE2NjI2MDk0OTY0MzE2NjU1MzcyMTgyOTYxMjMwMzYzMDY2MzE4NDM5NDgyMzY1NDQxNTE4MzI5MTMxMTM0MDk1MjYxOTU1Mjc0NTA5MjcwNTkzNDMzMTQ3OTY4NzExNTEyNjI1MTAwNDM1NDM4NjEzMTcxMTcwNDQwNDkzMTMwNTUzNTYwMTE3NDc3MjkzODIyMzcyNDU5NzUxODU2MDIzODQwODc2NTkxODYwNDQxMzg5MjY1NzM5MjI1Nzk1MzQ5MzY0MDc0OTY4ODIxMjM2NjI0OTUyNzU4MTUzMDk0MDM1NjM3NDY4NTcxOTYwNjI3NTc5NDMyODQzODY5ODMwNzQ1NTE4ODIzNTgyODg0MDQyMTI0MTczMzQ0Njc2NjU0MzU5MDQ1MzU1MTMzNDU1MjUyNDYzOTg4MTU5NjU2NzM3MjY2NTQzNzkwMTY4NDk0Nzc1MTQ1MTA2MDY2NjQ3OTE1NjU0OTcyMzQwODgyODUwOTQ2MzM3NjIyMjcxOTQzMTIzMjczMjMxODQ4NzU5MjU2NDUyNTE1NDg1NjUxNzU5MDkzNzE5OTczMzc4MzQyODUyODY2ODUxNzA4NjQyMTM1OTcyNzI1Nzg2ODIyNzMyNDU2MTA1NzA2Nzc5OTcyNTY3NzU3NzIxMTI3NDQ3MzA3NzkzNzM3NTk1MTMwMjQzODU0NjA4Mjk1NTg2NTc3NTExMDQ3MzQ1MTE2NDQ2NDIyNzgzNzA4MTE2ODc0MTMyODU2OTI1NTY2OTYzNDQzODgyMDM2NTcwMTUxNzg2NDk4Mjc5NDMyNDQ0OTc2Nzg2MTA0NjI3NzA1NjUxNjY4Mzg2NjY0NzI0NjIxNDQyODc1NDY0MDMyMTE1NDYyNzc1NDM4MzEyMTUzMTI2MzE1NTc5NDQwNTQyMTIyNzEzOTI2OTYwNzg1NjI5NjIyMTczNTQ3MzM5NjY0OTM3Nzg2NzY5MzE0ODE5MjUzOTczNjk1NjQzODk4MTI5Mjg2MjIxODQxOTU3NTE2Mjc2MzA3NzI0MTk5NDI3OTQxMTczOTI3OTgxMjkxNTMzMTI0Njc2NzUxNzIyNjY3NTg0MjI3MzUyNjU5NDcxMjE1ODQ1NzA2NjQ0Njc4NDQyMjk1NTE4NDU5MDQ4NDIyODU2MDI1MTExMDUwMDI1OTM4MjcxOTczNjk3NjgxOTUwMDcyNzU4MjUzNDIxOTU2NDU1NzIzOTI4OTYxMjg3MzM5NzExMDI4NjIzNDcyNjg4MjQxNTE4MjYzNTU1NjkxNTE3Mjg2MjMxMTc1NDM5MjM5NTA1MTE3MzMyNjIwMTEzODc1NzMxODU1NDMyOTU1NzUzMjU1NDc3MTc1MDQ2NzU5NzE5NDczNTQ1ODU1NzYzMjc4MjUxODAzMjUwODYyODgzMzk2OTM0NTg0MjU3NTUwMTQ0MTY1MDgyNjY0NzI4OTE1MTI2NzQ1NDcyMDc5MzY5MDk1MjU0NzI1Mjk3MDI0NjE0Njk5MTIxMjQwNDE3OTk0OTY1MTc5NDg2Nzc5MTQxMjQ0MjUzOTQwNTg0MjQ4NDI4NTQ0NDIwODg4Njk0NjMwMTIxNzIwNDU3MDQ3NTEyNjk5NTI0NzI0NzA4ODg0ODE1MzI1MTIxMTE0NTg3MjU5MjE4MTc5NzUzNTIzNTg5OTM2MDY5NzIxOTE3NDI0Njk1NzQ0MTc4NzE4OTkxNjY0MzE5MTc4NTM0MTYwMzA2NzY1NDg1NDU5NzI0Nzk2NzY5ODc0NDY4NTcxMzU4NTI4Njg1NDQzODIwNzQ0OTIzNzM5MjYzMjI3MTE2ODYyMTUzNjIxMTMyNTY4NDMxMjA1NDU2MTk5MjUwODUyNzY0NTE1MTc0ODc4MTE4NjcyMDU2NTkxMDI2MDk4MjEwMjc0MzMwOTE3MjYyNjUxODk3NjI1NzM5NDY1MzU5NTU3OTEwODgyNTI2MjEzMzI1MDMwMjEzMTMyOTgxNzI1MzUzODEzNzI5MjQwMTUxMjk1MzE1MjU4ODUzMTYwNDk4NjQ1MzM1NjY2OTQyNDgzMjY5NTEwNzYwNTM4OTgyMTM0NzIzNDUwMzc3NTg5ODQ5OTE1ODY1MzA1ODUwNzQxOTk5NzM4NjcxMTI5MjY4NDQyMTU0ODk3ODczNTUxMDY0OTQzNjM4NjI0MTYxMTkyNDc5OTg1MzY1MzI1MzY3NDY0OTU3MTMyNTg0MTU3NjY1NTE2ODY1NjI2MTAzNTIwNjEyMDExNzMwMDczNjI0NDQ0ODkzMTI1NjE1NjY5MzM2MzE5NzEwNzg1NzQzNjI3MDU2ODQxNjk4MjI0MTA3Mjc4MDIwMjIwNDgzNjI0OTM1Mjk5Mzg0MTQxMDQyNzcyNTUzNDI5NDc3ODQ3Mjg2OTgwOTE2NDgxOTI2NDQwNjY0MjczOTE1NzU5MjM1MzEzMzcyOTI4MTkzODQzMDMwNzE0NDUyMjgyNjM4NDU2MDU1MTYyNDU1MDM1NzY4MDIwNzYxMjkwODkzMzA1NzY4NTUxMjMwNDM2MTEwNjk1MjY5MTk4NzI1NzA1NTE5MjM3MDI1MTk0Mzk3MzIzMDY2NzU0NTA0OTc5OTI1NDQ4NDc2Mzk1NzkwMTIzNzc0MTk0Mzg0Nzc3NDkyODY2OTE3MTI0OTc4NTUzODQ1NzE2NDk2MTUzMDU1NzIyNDgzODU5NjgyMjk5NDIxMjYzMDc4NTM3NTExMjY5NjY5OTgxNDgyNzA3NjgyNzI5NDYzMjkwNzc4MjMzOTk3NzA5NzE5NDI4NDEyMzA2NTgzMTU0MDc4NzEwNTM5NTUzMzkwMjU5ODkzMTYzMzkwNjcyODIyMTcwNDY4MjU1MDcxNDk0NzIxODQ2OTU3NTY5MTcwNjUxNzQ2NTY1Mzc0NDMwNjYyNzQ2MTg1OTIwNjc4NTU5NTcxNjcwMjU5ODc0OTc4Njk3Nzk4NDUwMDcxMzgxOTk5MzYwMDY4MTMxNzM4MTMyNzM4OTY4NTU5NzM2NjA4MTA2NzIzOTUyNjA3Njg0NzIzNjMxMTM1NTU1NjYyMTMxMjUwOTg3OTcyNjgzMjkxNDIzMjA1NTAyNTE4NzI1NDcxMTY5NDU2NzE3Njk1MDQwNDg3NjA0OTYxOTU0MzI1NjYxNzIyMjk1ODcxNjcyOTgzMzEyMTQ4NzE5MjM0Njk2NDU2NDk3NzY5NTQ3NTM0NzU4OTk2NzQ4NjgzNjg0Mzc2NDkzMjg4MDUxMzA0MDYzMjc3NzUxNjE4ODYxMjQ4MjU4ODc1NzU2NzIzOTE4NzMxNTg4Mjk2ODQwNzU0NjcxODQwMDU0NTU4MTM3NDkyMzkxMjQ3NjQxMjk5NzIzNDI5NzgzNzM3NDc2MjgyNzY3Njk4MTc2Mzk0MjMzMjk0MTk0MzQyNjU3OTQ5NjEwMDI2MjEwMTgyMjUyODQ1OTc5OTY5NDM4NDUyNzk1MDY5MzQ3NzQxOTUzNTkzMjk4MDUyNTYyNzQxNTk2MTI5NjY5NjgxNTE5NTI2OTU4Njg4NTY4NDI3NTU4ODg5NjM1MzE3OTM5NDc2NTU2MTM3Mjk0NDk5NzEzMDYwMjEzMjg4OTQ3OTY4NDk0MjkxNzI4NzQxOTE4ODYwMTUyOTQ3NDUyODU2ODc1Njk2MjE3MTA5MzUyNzU0NzQxNTUzOTg5NTgxODQwNTAzNTYwOTE1MTY4MzQxMjY4NzI4NjMzNDUzMjc1NDMyMjEzMTExOTcwNTk0MzYzODZkYXRhAA==";
+                loadSoundFromUrl(audioDataUrl);
+            });
+
+            const clearAudioBtn = document.getElementById('clear-audio-btn');
+            clearAudioBtn.addEventListener('click', clearRecordedAudio);
+
+            const toggleNamesBtn = document.getElementById('toggle-names-btn');
+            toggleNamesBtn.addEventListener('click', () => {
+                showNoteNames = !showNoteNames;
+                toggleNamesBtn.classList.toggle('active', showNoteNames);
+                musicalObjects.forEach(obj => {
+                    const label = document.getElementById(`label-${obj.userData.id}`);
+                    if (label) {
+                        label.style.opacity = showNoteNames ? '1' : '0';
+                    }
+                });
+            });
+
+            const toggleDroneBtn = document.getElementById('toggle-drone-btn');
+            toggleDroneBtn.addEventListener('click', () => {
+                initAudio();
+                toggleDrone();
+            });
+
+            const modeSelect = document.getElementById('mode-select');
+            const playSequenceBtn = document.getElementById('play-sequence-btn');
+            modeSelect.addEventListener('change', (e) => {
+                currentMode = e.target.value;
+                clearInterval(sequencerLoop);
+                sequencer = [];
+                playSequenceBtn.style.display = 'none';
+                if(currentMode === 'sequencer') {
+                    playSequenceBtn.style.display = 'flex';
+                }
+            });
+
+            playSequenceBtn.addEventListener('click', () => {
+                if (sequencer.length > 0) {
+                    playSequencer();
+                }
+            });
+
+            const helpBtn = document.getElementById('help-btn');
+            const helpScreen = document.getElementById('help-screen');
+
+            helpBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                helpScreen.style.visibility = 'visible';
+                helpScreen.style.opacity = '1';
+            });
+
+            helpScreen.addEventListener('click', () => {
+                helpScreen.style.opacity = '0';
+                helpScreen.style.visibility = 'hidden';
+            });
+        }
+        
+        function handleObjectClick(object) {
+            if (!object.userData) return;
+            
+            // Haptic feedback for a more tactile experience on supported devices (e.g., mobile)
+            if (navigator.vibrate) {
+                navigator.vibrate(50); // Vibrate for 50 milliseconds
+            }
+
+            const noteIndex = object.userData.noteIndex;
+            let frequency = currentScale[noteIndex % currentScale.length];
+
+            // Normalize position values for sound control
+            const yFactor = (object.position.y + 2) / 12; // Y range -2 to 10
+            const xFactor = (object.position.x + 10) / 20; // X range -10 to 10
+            const zFactor = (object.position.z + 10) / 20; // Z range -10 to 10
+
+            // Play the appropriate sound based on context
+            if (recordedAudioBuffer && object.userData.type === 'figure') {
+                playRecordedSound(recordedAudioBuffer, yFactor, xFactor, zFactor);
+            } else {
+                 switch (currentMode) {
+                    case 'interactive':
+                        playTone(frequency, yFactor, xFactor, zFactor);
+                        animateObjectActivation(object);
+                        break;
+                    case 'sequencer':
+                        sequencer.push(object.userData);
+                        animateObjectActivation(object);
+                        break;
+                    case 'callResponse':
+                        playChoirHarmony(object);
+                        animateObjectActivation(object);
+                        break;
+                }
+            }
+
+            createWavePropagation(object.position, frequency * yFactor);
+            showHarmonicConnections(object, frequency * yFactor);
+            updateInfoDisplay(frequency * yFactor, xFactor, zFactor, noteIndex);
+        }
+
+        // --- Musical Modes Logic ---
+        function playChoirHarmony(activeObject) {
+            const userNoteIndex = activeObject.userData.noteIndex;
+            const yFactor = (activeObject.position.y + 2) / 12;
+            const xFactor = (activeObject.position.x + 10) / 20;
+            const zFactor = (activeObject.position.z + 10) / 20;
+
+            const userFreq = currentScale[userNoteIndex % currentScale.length];
+            playTone(userFreq, yFactor, xFactor, zFactor);
+            
+            const choirObjects = musicalObjects.filter(obj => obj.userData.type === 'figure' && obj !== activeObject);
+            
+            const harmonyNotes = [
+                { index: (userNoteIndex + 2) % currentScale.length, delay: 200, color: 0x4a007f },
+                { index: (userNoteIndex + 4) % currentScale.length, delay: 400, color: 0x6a0dad },
+                { index: (userNoteIndex + 6) % currentScale.length, delay: 600, color: 0x8a2be2 }
+            ];
+            
+            const selectedChoir = [];
+            while(selectedChoir.length < harmonyNotes.length && choirObjects.length > 0) {
+                const randomIndex = Math.floor(Math.random() * choirObjects.length);
+                selectedChoir.push(choirObjects.splice(randomIndex, 1)[0]);
+            }
+            
+            harmonyNotes.forEach((harmony, index) => {
+                if (selectedChoir[index]) {
+                    const yFactorChoir = (selectedChoir[index].position.y + 2) / 12;
+                    const xFactorChoir = (selectedChoir[index].position.x + 10) / 20;
+                    const zFactorChoir = (selectedChoir[index].position.z + 10) / 20;
+                    
+                    const harmonyFreq = currentScale[harmony.index];
+                    setTimeout(() => {
+                        playTone(harmonyFreq, yFactorChoir, xFactorChoir, zFactorChoir);
+                        animateObjectActivation(selectedChoir[index], harmony.color);
+                        createWavePropagation(selectedChoir[index].position, harmonyFreq);
+                    }, harmony.delay);
+                }
+            });
+        }
+
+        function playSequencer() {
+            let i = 0;
+            clearInterval(sequencerLoop);
+            sequencerLoop = setInterval(() => {
+                if (i >= sequencer.length) {
+                    i = 0;
+                }
+                const userData = sequencer[i];
+                const musicalObject = musicalObjects.find(obj => obj.userData.id === userData.id);
+                if (musicalObject) {
+                    const frequency = currentScale[userData.noteIndex];
+                    const yFactor = (musicalObject.position.y + 2) / 12;
+                    const xFactor = (musicalObject.position.x + 10) / 20;
+                    const zFactor = (musicalObject.position.z + 10) / 20;
+                    
+                    if (recordedAudioBuffer && musicalObject.userData.type === 'figure') {
+                        playRecordedSound(recordedAudioBuffer, yFactor, xFactor, zFactor);
+                    } else {
+                        playTone(frequency, yFactor, xFactor, zFactor);
+                    }
+                    animateObjectActivation(musicalObject);
+                }
+                i++;
+            }, 500);
+        }
+
+        function toggleDrone() {
+            const droneBtn = document.getElementById('toggle-drone-btn');
+            if (droneOscillator) {
+                droneOscillator.stop();
+                droneOscillator = null;
+                droneBtn.classList.remove('active');
+            } else {
+                droneOscillator = audioContext.createOscillator();
+                droneOscillator.type = 'triangle';
+                droneOscillator.frequency.setValueAtTime(currentScale[0] / 2, audioContext.currentTime);
+                droneOscillator.connect(masterGain);
+                droneOscillator.start();
+                droneBtn.classList.add('active');
+            }
+        }
+        
+        // --- Core Functions (Play, Animate, Visualize) ---
+        function playTone(frequency, yFactor = 1, xFactor = 0.5, zFactor = 0.5) {
+            if (!audioContext) return;
+            
+            // Gain based on Y position (closer to screen center = louder)
+            const volumeGain = audioContext.createGain();
+            volumeGain.gain.setValueAtTime(0.3 + yFactor * 0.7, audioContext.currentTime);
+
+            // Panning based on X position
+            const panner = audioContext.createStereoPanner();
+            panner.pan.setValueAtTime(xFactor * 2 - 1, audioContext.currentTime); // Map 0-1 to -1 to 1
+
+            // Filter based on Z position
+            const filter = audioContext.createBiquadFilter();
+            filter.type = 'lowpass';
+            // Map Z from 0-1 to a frequency range, e.g., 200 Hz to 10000 Hz
+            filter.frequency.setValueAtTime(200 + zFactor * 9800, audioContext.currentTime);
+
+            const fundamental = audioContext.createOscillator();
+            fundamental.frequency.setValueAtTime(frequency * yFactor, audioContext.currentTime);
+            fundamental.type = 'triangle';
+
+            // Additive synthesis for richer timbre
+            const overtones = [2, 3, 4, 5, 6];
+            const overtoneGains = [0.5, 0.3, 0.2, 0.1, 0.05];
+            const oscillators = [fundamental];
+
+            for (let i = 0; i < overtones.length; i++) {
+                const overtone = audioContext.createOscillator();
+                overtone.frequency.setValueAtTime(frequency * overtones[i] * yFactor, audioContext.currentTime);
+                overtone.type = 'triangle';
+                
+                const overtoneGain = audioContext.createGain();
+                overtoneGain.gain.setValueAtTime(overtoneGains[i], audioContext.currentTime);
+
+                overtone.connect(overtoneGain);
+                overtoneGain.connect(filter);
+                oscillators.push(overtone);
+            }
+            
+            fundamental.connect(filter);
+            filter.connect(panner);
+            panner.connect(volumeGain);
+            volumeGain.connect(masterGain);
+            
+            // Envelope
+            const now = audioContext.currentTime;
+            volumeGain.gain.setValueAtTime(0, now);
+            volumeGain.gain.linearRampToValueAtTime(0.3, now + 0.01);
+            volumeGain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+
+            oscillators.forEach(osc => {
+                osc.start(now);
+                osc.stop(now + 1.0);
+            });
+        }
+        
+        function playRecordedSound(buffer, playbackRate = 1, xFactor = 0.5, zFactor = 0.5) {
+            if (!audioContext || !buffer) return;
+            
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.playbackRate.value = playbackRate;
+
+            const panner = audioContext.createStereoPanner();
+            panner.pan.setValueAtTime(xFactor * 2 - 1, audioContext.currentTime);
+
+            const filter = audioContext.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(200 + zFactor * 9800, audioContext.currentTime);
+
+            source.connect(filter);
+            filter.connect(panner);
+            panner.connect(masterGain);
+            
+            source.start();
+        }
+        
+        function animateObjectActivation(object, color = 0x8a2be2) {
+            const originalColor = object.children[0] ? object.children[0].material.color.clone() : null;
+            
+            animateProperty({ scale: 1 }, { scale: 1.3 }, 200, (values) => {
+                object.scale.setScalar(values.scale);
+            }, () => {
+                animateProperty({ scale: 1.3 }, { scale: 1 }, 300, (values) => {
+                    object.scale.setScalar(values.scale);
+                });
+            });
+            
+            if (object.userData.type === 'figure' && originalColor) {
+                const colorTarget = new THREE.Color(color);
+                object.children.forEach(child => {
+                    if (child.material) {
+                        child.material.color.copy(colorTarget);
+                        setTimeout(() => {
+                            child.material.color.copy(originalColor);
+                        }, 500);
+                    }
+                });
+            }
+            
+            if (object.userData.type === 'note') {
+                const glowMaterial = new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.5 });
+                const glowGeometry = object.children[0].geometry.clone();
+                const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+                glow.scale.setScalar(1.5);
+                object.add(glow);
+                
+                setTimeout(() => { object.remove(glow); }, 1000);
+            }
+        }
+        
+        function createWavePropagation(origin, frequency) {
+            const geometry = new THREE.BufferGeometry();
+            const material = new THREE.LineBasicMaterial({ color: 0x8a2be2, linewidth: 2 });
+            const line = new THREE.Line(geometry, material);
+            line.position.copy(origin);
+            line.lookAt(camera.position);
+
+            const startTime = Date.now();
+            const duration = 2000;
+            
+            const animateWave = () => {
+                const elapsed = Date.now() - startTime;
+                const progress = elapsed / duration;
+                if (progress > 1) { scene.remove(line); return; }
+                
+                const newPoints = [];
+                for (let i = 0; i < 200; i++) {
+                    const angle = (i / 200) * Math.PI * 2 * (frequency / 100);
+                    const x = (i - 100) * 0.1;
+                    const y = Math.sin(angle) * 2 * (1 - progress);
+                    newPoints.push(new THREE.Vector3(x, y, 0));
+                }
+                line.geometry.setFromPoints(newPoints);
+                line.position.z -= progress * 5;
+                requestAnimationFrame(animateWave);
+            };
+            scene.add(line);
+            animateWave();
+        }
+
+        function showHarmonicConnections(activeObject, frequency) {
+            connections.forEach(conn => scene.remove(conn));
+            connections = [];
+            
+            musicalObjects.forEach(obj => {
+                if (obj === activeObject || obj.userData.type !== 'figure') return;
+                
+                const objFreq = currentScale[obj.userData.noteIndex % currentScale.length] * ((obj.position.y + 2) / 12);
+                const ratio = frequency / objFreq;
+                
+                const harmonicRatios = [1, 2, 1.5, 1.25, 4/3, 3/2, 5/4]; // 1, Octave, Fifth, Major Third, Fourth, Fifth, Major Third
+                let strength = 0;
+                
+                harmonicRatios.forEach(r => {
+                    const difference = Math.abs(ratio - r);
+                    const inverseDifference = Math.abs(1/ratio - r);
+                    if (difference < 0.1 || inverseDifference < 0.1) {
+                        strength = Math.max(strength, 1 - Math.min(difference, inverseDifference) * 10);
+                    }
+                });
+
+                if (strength > 0) {
+                    const connection = createHarmonicConnection(activeObject.position, obj.position, strength);
+                    scene.add(connection);
+                    connections.push(connection);
+                }
+            });
+            
+            setTimeout(() => {
+                connections.forEach(conn => scene.remove(conn));
+                connections = [];
+            }, 2000);
+        }
+        
+        function createHarmonicConnection(pos1, pos2, strength) {
+            const points = [];
+            const distance = pos1.distanceTo(pos2);
+            const midpoint = new THREE.Vector3().addVectors(pos1, pos2).multiplyScalar(0.5);
+            midpoint.y += distance * 0.3;
+            
+            for (let i = 0; i <= 20; i++) {
+                const t = i / 20;
+                const point = new THREE.Vector3();
+                point.lerpVectors(pos1, pos2, t);
+                point.y += Math.sin(t * Math.PI) * distance * 0.3 * strength;
+                points.push(point);
+            }
+            
+            const curve = new THREE.CatmullRomCurve3(points);
+            const geometry = new THREE.TubeGeometry(curve, 20, 0.05 + strength * 0.1, 8, false);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: new THREE.Color(0x8a2be2).lerp(new THREE.Color(0xffffff), strength),
+                transparent: true,
+                opacity: 0.2 + strength * 0.8,
+                emissive: 0x001133
+            });
+            
+            return new THREE.Mesh(geometry, material);
+        }
+
+        function updateInfoDisplay(frequency, xFactor, zFactor, noteIndex) {
+            const noteName = noteNames[noteIndex % noteNames.length];
+            const panValue = (xFactor * 2 - 1).toFixed(2);
+            const filterValue = (200 + zFactor * 9800).toFixed(0);
+            
+            const infoOverlay = document.getElementById('info-overlay');
+            infoOverlay.textContent = `Note: ${noteName} (${frequency.toFixed(2)} Hz) | Pan: ${panValue} | Filter: ${filterValue} Hz`;
+            infoOverlay.style.opacity = '1';
+
+            setTimeout(() => {
+                infoOverlay.style.opacity = '0';
+            }, 2000);
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function toggleAudioRecording() {
+            initAudio();
+            const micBtn = document.getElementById('mic-btn');
+            
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                micBtn.classList.remove('recording');
+                micBtn.textContent = '🎙️';
+            } else {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        recordedChunks = [];
+                        
+                        mediaRecorder.ondataavailable = (event) => {
+                            if (event.data.size > 0) {
+                                recordedChunks.push(event.data);
+                            }
+                        };
+                        
+                        mediaRecorder.onstop = () => {
+                            const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+                            const reader = new FileReader();
+                            reader.onload = (e) => {
+                                audioContext.decodeAudioData(e.target.result).then(buffer => {
+                                    recordedAudioBuffer = buffer;
+                                    document.getElementById('info-overlay').textContent = 'Audio recording ready!';
+                                    document.getElementById('info-overlay').style.opacity = '1';
+                                    setTimeout(() => { document.getElementById('info-overlay').style.opacity = '0'; }, 2000);
+                                }).catch(err => console.error('Error decoding audio data:', err));
+                            };
+                            reader.readAsArrayBuffer(blob);
+                        };
+                        
+                        mediaRecorder.start();
+                        micBtn.classList.add('recording');
+                        micBtn.textContent = '🔴';
+                    })
+                    .catch(err => {
+                        console.error('Microphone access denied:', err);
+                        alert("Microphone access was denied. Please allow microphone access in your browser settings to use this feature.");
+                    });
+            }
+        }
+        
+        function loadSoundFromUrl(url) {
+            initAudio();
+            document.getElementById('info-overlay').textContent = 'Loading default sound...';
+            document.getElementById('info-overlay').style.opacity = '1';
+            
+            fetch(url)
+                .then(response => response.arrayBuffer())
+                .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => {
+                    recordedAudioBuffer = audioBuffer;
+                    document.getElementById('info-overlay').textContent = 'Default sound loaded!';
+                    document.getElementById('info-overlay').style.opacity = '1';
+                    setTimeout(() => { document.getElementById('info-overlay').style.opacity = '0'; }, 2000);
+                })
+                .catch(err => {
+                    console.error('Error loading audio from URL:', err);
+                    document.getElementById('info-overlay').textContent = 'Error loading sound.';
+                });
+        }
+        
+        function clearRecordedAudio() {
+            recordedAudioBuffer = null;
+            document.getElementById('info-overlay').textContent = 'Audio cleared!';
+            document.getElementById('info-overlay').style.opacity = '1';
+            setTimeout(() => { document.getElementById('info-overlay').style.opacity = '0'; }, 2000);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = Date.now() * 0.001;
+            musicalObjects.forEach((obj, index) => {
+                if (obj.userData && obj.userData.originalPosition) {
+                    obj.rotation.y += 0.005;
+
+                    const label = document.getElementById(`label-${obj.userData.id}`);
+                    if (label) {
+                        const vector = new THREE.Vector3();
+                        const worldPos = obj.getWorldPosition(vector);
+                        worldPos.project(camera);
+                        
+                        const x = (worldPos.x * 0.5 + 0.5) * window.innerWidth;
+                        const y = (-worldPos.y * 0.5 + 0.5) * window.innerHeight;
+                        
+                        label.style.left = `${x}px`;
+                        label.style.top = `${y}px`;
+                    }
+                }
+            });
+            
+            camera.position.x = Math.sin(time * 0.1) * 20;
+            camera.position.z = Math.cos(time * 0.1) * 20;
+            camera.lookAt(0, 4, 0);
+            
+            renderer.render(scene, camera);
+        }
+        
+        function animateProperty(from, to, duration, onUpdate, onComplete) {
+            const start = performance.now();
+            function tick(now) {
+                const elapsed = now - start;
+                const progress = Math.min(elapsed / duration, 1);
+                const values = {};
+                for (const key in from) {
+                    values[key] = from[key] + (to[key] - from[key]) * progress;
+                }
+                onUpdate(values);
+                if (progress < 1) {
+                    requestAnimationFrame(tick);
+                } else if (onComplete) {
+                    onComplete();
+                }
+            }
+            requestAnimationFrame(tick);
+        }
+        
+        function addNoteLabels() {
+            musicalObjects.forEach(obj => {
+                if (obj.userData) {
+                    const labelDiv = document.createElement('div');
+                    labelDiv.className = 'note-label';
+                    labelDiv.id = `label-${obj.userData.id}`;
+                    labelDiv.textContent = noteNames[obj.userData.noteIndex % noteNames.length];
+                    document.body.appendChild(labelDiv);
+                }
+            });
+        }
+        
+        window.onload = () => {
+            init();
+        };
+    </script>
+</body>
+</html>
+
